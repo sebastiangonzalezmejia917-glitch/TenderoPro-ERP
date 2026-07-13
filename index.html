@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Apartados" />
+    <meta name="description" content="Sistema de apartados para tienda con registro de abonos, estado y mensajes de WhatsApp." />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icon.svg" />
+    <title>Apartados de tienda</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero-card">
+        <div>
+          <p class="eyebrow">Sistema de apartados</p>
+          <h1>Controla abonos y entregas desde tu celular</h1>
+          <p>Registra cada pago, revisa el avance y envía un mensaje con la fecha, hora y estado del apartado.</p>
+        </div>
+        <div class="stack">
+          <span id="currentProfile" class="pill">Perfil: default</span>
+          <button id="resetBtn" class="secondary-btn" type="button">Borrar datos</button>
+        </div>
+      </header>
+
+      <div id="notice" class="notice" aria-live="polite"></div>
+
+      <section class="panel">
+        <div class="section-head">
+          <h2>Apartados y abonos</h2>
+          <span class="pill">Productos</span>
+        </div>
+        <form id="apartadoForm" class="stack">
+          <label>
+            <span>Nombre del producto</span>
+            <input id="productName" name="productName" type="text" placeholder="Ej. TV 55 pulgadas" required />
+          </label>
+          <label>
+            <span>Precio total</span>
+            <input id="totalAmount" name="totalAmount" type="number" step="0.01" min="1" placeholder="Ej. 4500" required />
+          </label>
+          <button type="submit">Guardar apartado</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <h2>Lista de apartados</h2>
+          <span id="counter" class="pill">0 registros</span>
+        </div>
+        <div id="apartadosList" class="list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <h2>Fiados</h2>
+          <span class="pill">Cuenta automática</span>
+        </div>
+        <form id="fiadoForm" class="stack">
+          <label>
+            <span>Nombre de la persona</span>
+            <input id="fiadoName" name="fiadoName" type="text" placeholder="Ej. Ana López" required />
+          </label>
+          <label>
+            <span>Producto / concepto</span>
+            <input id="fiadoConcept" name="fiadoConcept" type="text" placeholder="Ej. 2 teléfonos" required />
+          </label>
+          <label>
+            <span>Total a deber</span>
+            <input id="fiadoTotal" name="fiadoTotal" type="number" step="0.01" min="1" placeholder="Ej. 3000" required />
+          </label>
+          <label>
+            <span>Abono dado</span>
+            <input id="fiadoAbono" name="fiadoAbono" type="number" step="0.01" min="0.01" placeholder="Ej. 500" required />
+          </label>
+          <button type="submit">Guardar fiado</button>
+        </form>
+
+        <div id="fiadosList" class="list" style="margin-top: 14px;"></div>
+      </section>
+    </div>
+
+    <button id="fabToggle" class="fab-btn" type="button" aria-label="Abrir formulario rápido">+</button>
+
+    <script src="app.js"></script>
+  </body>
+</html>
