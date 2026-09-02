@@ -498,6 +498,23 @@ app.get("/api/test-login", async (req, res) => {
   }
 });
 
+app.post("/api/test-login-post", async (req, res) => {
+  console.log('[TEST-POST] Body:', req.body);
+  console.log('[TEST-POST] Body type:', typeof req.body);
+  console.log('[TEST-POST] Headers:', req.headers);
+  
+  const { username, password } = req.body || {};
+  console.log('[TEST-POST] Username:', username, 'Password:', password ? '***' : 'null');
+  
+  res.json({
+    body: req.body,
+    username,
+    password: password ? '***' : null,
+    hasUsername: !!username,
+    hasPassword: !!password
+  });
+});
+
 app.post("/api/auth/login", async (req, res) => {
   console.log('[INFO] Login attempt:', req.body);
   try {
