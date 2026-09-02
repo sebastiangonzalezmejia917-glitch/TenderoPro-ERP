@@ -452,35 +452,47 @@ app.get("/api/debug", async (req, res) => {
 });
 
 app.post("/api/auth/login", async (req, res) => {
+  console.log('[INFO] Login attempt:', req.body);
   try {
     const { username, password } = req.body || {};
+    console.log('[INFO] Username:', username, 'Password length:', password?.length || 0);
+    
     if (!username || !password) {
       return res.status(400).json({ message: "Usuario y contraseña son requeridos." });
     }
 
+    console.log('[INFO] Querying user:', username);
     const user = await get(`SELECT * FROM users WHERE username = ? AND active = 1`, [username]);
+    console.log('[INFO] User found:', user ? user.username : 'none');
+    
     if (!user) {
       return res.status(401).json({ message: "Credenciales inválidas." });
     }
 
+    console.log('[INFO] Comparing password');
     const passwordOk = await bcrypt.compare(password, user.password_hash);
+    console.log('[INFO] Password OK:', passwordOk);
+    
     if (!passwordOk) {
       return res.status(401).json({ message: "Credenciales inválidas." });
     }
 
     // update last login
     try {
+      console.log('[INFO] Updating last_login');
       await run(`UPDATE users SET last_login = ? WHERE id = ?`, [new Date().toISOString(), user.id]);
     } catch (e) {
       console.warn('Failed to update last_login (likely older DB schema).');
     }
 
     try {
+      console.log('[INFO] Creating audit log');
       await createAuditLog(user, "login", "users", user.id, { ip: req.ip });
     } catch (e) {
       console.warn('Failed to create audit log:', e.message);
     }
 
+    console.log('[INFO] Login successful, generating token');
     return res.json({
       token: signToken(user),
       user: { id: user.id, username: user.username, role: user.role, mustChangePassword: Boolean(user.must_change_password) },
