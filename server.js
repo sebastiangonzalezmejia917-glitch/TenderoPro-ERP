@@ -420,35 +420,40 @@ app.get("/api/health", (req, res) => {
 });
 
 app.post("/api/auth/login", async (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) {
-    return res.status(400).json({ message: "Usuario y contraseña son requeridos." });
-  }
-
-  const user = await get(`SELECT * FROM users WHERE username = ? AND active = 1`, [username]);
-  if (!user) {
-    return res.status(401).json({ message: "Credenciales inválidas." });
-  }
-
-  const passwordOk = await bcrypt.compare(password, user.password_hash);
-  if (!passwordOk) {
-    return res.status(401).json({ message: "Credenciales inválidas." });
-  }
-
-  // update last login
   try {
-    await run(`UPDATE users SET last_login = ? WHERE id = ?`, [new Date().toISOString(), user.id]);
-  } catch (e) {
-    console.warn('Failed to update last_login (likely older DB schema).');
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ message: "Usuario y contraseña son requeridos." });
+    }
+
+    const user = await get(`SELECT * FROM users WHERE username = ? AND active = 1`, [username]);
+    if (!user) {
+      return res.status(401).json({ message: "Credenciales inválidas." });
+    }
+
+    const passwordOk = await bcrypt.compare(password, user.password_hash);
+    if (!passwordOk) {
+      return res.status(401).json({ message: "Credenciales inválidas." });
+    }
+
+    // update last login
+    try {
+      await run(`UPDATE users SET last_login = ? WHERE id = ?`, [new Date().toISOString(), user.id]);
+    } catch (e) {
+      console.warn('Failed to update last_login (likely older DB schema).');
+    }
+
+    await createAuditLog(user, "login", "users", user.id, { ip: req.ip });
+
+    return res.json({
+      token: signToken(user),
+      user: { id: user.id, username: user.username, role: user.role, mustChangePassword: Boolean(user.must_change_password) },
+      mustChangePassword: Boolean(user.must_change_password)
+    });
+  } catch (error) {
+    console.error('[ERROR] Login error:', error.message, error.stack);
+    return res.status(500).json({ message: 'Error interno del servidor.', debug: error.message });
   }
-
-  await createAuditLog(user, "login", "users", user.id, { ip: req.ip });
-
-  return res.json({
-    token: signToken(user),
-    user: { id: user.id, username: user.username, role: user.role, mustChangePassword: Boolean(user.must_change_password) },
-    mustChangePassword: Boolean(user.must_change_password)
-  });
 });
 
 // global error handler - do not leak internal errors
