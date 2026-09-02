@@ -51,15 +51,29 @@ const startupPromise = (async () => {
     console.log("[INFO] Iniciando base de datos...");
     await initializeDb();
     console.log("[INFO] Base de datos inicializada");
+  } catch (error) {
+    console.error("[ERROR] Fallo al inicializar DB:", error.message);
+  }
+  
+  try {
     await ensureSettingsTable();
     console.log("[INFO] Tabla de configuración lista");
+  } catch (error) {
+    console.warn("[WARN] Fallo al crear tabla de configuración:", error.message);
+  }
+  
+  try {
     await seedDefaultPermissions();
     console.log("[INFO] Permisos por defecto configurados");
+  } catch (error) {
+    console.warn("[WARN] Fallo al configurar permisos:", error.message);
+  }
+  
+  try {
     await seedAdminUser();
     console.log("[INFO] Usuario admin creado/verificado");
   } catch (error) {
-    console.error("[ERROR] Fallo en inicialización:", error.message, error.stack);
-    throw error;
+    console.error("[ERROR] Fallo al crear usuario admin:", error.message);
   }
 })();
 
