@@ -5,11 +5,26 @@ const sqlite3 = require("sqlite3").verbose();
 const dbDir = path.join(__dirname, "data");
 const dbPath = process.env.DB_PATH || path.join(dbDir, "tenderopro.db");
 
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+// Intentar crear directorio
+let useMemory = false;
+try {
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+  }
+} catch (error) {
+  console.warn(`[WARN] No se pudo crear directorio ${dbDir}, usando DB en memoria`);
+  useMemory = true;
 }
 
-const db = new sqlite3.Database(dbPath);
+// Usar la ruta especificada, o memoria si hay error
+const db = new sqlite3.Database(useMemory ? ':memory:' : dbPath, (err) => {
+  if (err) {
+    console.error(`[ERROR] Al inicializar DB: ${err.message}`);
+  } else {
+    const dbName = useMemory ? 'memoria' : dbPath;
+    console.log(`[INFO] Base de datos iniciada en: ${dbName}`);
+  }
+});
 
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
