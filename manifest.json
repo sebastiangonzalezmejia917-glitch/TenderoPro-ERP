@@ -1,11 +1,11 @@
 {
-  "name": "Apartados de tienda",
-  "short_name": "Apartados",
-  "description": "Sistema para controlar apartados, pagos y mensajes de entrega.",
+  "name": "TenderoPro ERP",
+  "short_name": "TenderoPro",
+  "description": "ERP local para tienda con ventas, inventario, clientes, caja y apartados.",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f4f7fb",
-  "theme_color": "#0f172a",
+  "background_color": "#f3f6f8",
+  "theme_color": "#1f8a52",
   "orientation": "portrait",
   "icons": [
     {

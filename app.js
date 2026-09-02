@@ -1,466 +1,1373 @@
-const STORAGE_KEY_PREFIX = "apartados-store-v2";
-const INSTANCE_STORAGE_KEY = "apartados-instance-id";
-const noticeEl = document.getElementById("notice");
-const listEl = document.getElementById("apartadosList");
-const counterEl = document.getElementById("counter");
-const formEl = document.getElementById("apartadoForm");
-const resetBtn = document.getElementById("resetBtn");
-const profileEl = document.getElementById("currentProfile");
-const fiadoFormEl = document.getElementById("fiadoForm");
-const fiadosListEl = document.getElementById("fiadosList");
-const fabToggleEl = document.getElementById("fabToggle");
+const STORAGE_KEY = "tenderopro-storage-v1";
+const AUTH_STORAGE_KEY = "tenderopro-auth-v1";
+const API_BASE = "/api";
+const NOTICE_TIMEOUT = 2500;
 
-let apartados = loadApartados();
-let fiados = loadFiados();
-let isOnline = navigator.onLine;
+const appState = {
+  auth: {
+    token: null,
+    user: null
+  },
+  products: [],
+  clients: [],
+  suppliers: [],
+  purchases: [],
+  sales: [],
+  debts: [],
+  apartados: [],
+  expenses: [],
+  cash: {
+    open: false,
+    openedAt: null,
+    openedBy: null,
+    base: 0,
+    totalSales: 0,
+    totalCashIn: 0,
+    totalExpenses: 0,
+    lastClosedAt: null
+  },
+  settings: {
+    storeName: "Tienda La Bendición",
+    storePhone: "",
+    currency: "COP",
+    interestRate: 0,
+    dueDays: 7
+  },
+  cart: []
+};
 
-init();
+const elements = {
+  appShell: document.getElementById("appShell"),
+  authOverlay: document.getElementById("authOverlay"),
+  loginForm: document.getElementById("loginForm"),
+  notice: document.getElementById("notice"),
+  authUser: document.getElementById("authUser"),
+  logoutBtn: document.getElementById("logoutBtn"),
+  tabButtons: document.querySelectorAll(".tab-btn"),
+  dashboardStats: document.getElementById("dashboardStats"),
+  dashboardSummary: document.getElementById("dashboardSummary"),
+  alertList: document.getElementById("alertList"),
+  posSearch: document.getElementById("posSearch"),
+  productPicker: document.getElementById("productPicker"),
+  cartItems: document.getElementById("cartItems"),
+  subtotalLabel: document.getElementById("subtotalLabel"),
+  discountLabel: document.getElementById("discountLabel"),
+  totalLabel: document.getElementById("totalLabel"),
+  receivedLabel: document.getElementById("receivedLabel"),
+  changeLabel: document.getElementById("changeLabel"),
+  inventoryList: document.getElementById("inventoryList"),
+  movementProductSelect: document.getElementById("movementProductSelect"),
+  purchaseSupplierSelect: document.getElementById("purchaseSupplierSelect"),
+  purchaseProductSelect: document.getElementById("purchaseProductSelect"),
+  purchaseQty: document.getElementById("purchaseQty"),
+  purchaseCostPrice: document.getElementById("purchaseCostPrice"),
+  suppliersList: document.getElementById("suppliersList"),
+  purchasesList: document.getElementById("purchasesList"),
+  salesList: document.getElementById("salesList"),
+  clientsList: document.getElementById("clientsList"),
+  creditsList: document.getElementById("creditsList"),
+  apartadosList: document.getElementById("apartadosList"),
+  expensesList: document.getElementById("expensesList"),
+  cashSummary: document.getElementById("cashSummary"),
+  storeNameHeader: document.getElementById("storeNameHeader"),
+  connectionStatus: document.getElementById("connectionStatus"),
+  exportBackupBtn: document.getElementById("exportBackupBtn"),
+  importBackupInput: document.getElementById("importBackupInput"),
+  reportsSales: document.getElementById("reportsSales"),
+  reportsInventory: document.getElementById("reportsInventory"),
+  reportsFinance: document.getElementById("reportsFinance"),
+  inventoryMovementForm: document.getElementById("inventoryMovementForm"),
+  posPaymentForm: document.getElementById("posPaymentForm"),
+  productForm: document.getElementById("productForm"),
+  clientForm: document.getElementById("clientForm"),
+  supplierForm: document.getElementById("supplierForm"),
+  purchaseForm: document.getElementById("purchaseForm"),
+  creditForm: document.getElementById("creditForm"),
+  apartadoForm: document.getElementById("apartadoForm"),
+  expenseForm: document.getElementById("expenseForm"),
+  userForm: document.getElementById("userForm"),
+  usersList: document.getElementById("usersList"),
+  cashOpenForm: document.getElementById("cashOpenForm"),
+  closeCashBtn: document.getElementById("closeCashBtn"),
+  creditClientSelect: document.getElementById("creditClientSelect"),
+  apartadoClientSelect: document.getElementById("apartadoClientSelect"),
+  movementType: document.getElementById("movementType"),
+  movementQty: document.getElementById("movementQty"),
+  discountInput: document.getElementById("discountInput"),
+  clearCartBtn: document.getElementById("clearCartBtn"),
+  cancelSaleBtn: document.getElementById("cancelSaleBtn"),
+  cashBaseInput: document.getElementById("cashBaseInput"),
+  cashUserInput: document.getElementById("cashUserInput")
+};
 
-function init() {
-  formEl.addEventListener("submit", handleCreateApartado);
-  fiadoFormEl.addEventListener("submit", handleCreateFiado);
-  resetBtn.addEventListener("click", resetAllData);
-  listEl.addEventListener("submit", handlePaymentSubmit);
-  listEl.addEventListener("click", handleShareClick);
-  fiadosListEl.addEventListener("submit", handleFiadoPaymentSubmit);
-  fiadosListEl.addEventListener("click", handleFiadoActionClick);
-  fabToggleEl.addEventListener("click", () => {
-    document.getElementById("fiadoName").focus();
-  });
-  window.addEventListener("online", handleNetworkChange);
-  window.addEventListener("offline", handleNetworkChange);
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-  handleNetworkChange();
-  render();
+initialize();
+
+async function initialize() {
+  restoreAuthSession();
+  hydrateState();
+  bindEvents();
+  renderAuthState();
+  updateConnectionStatus();
+  renderAll();
+
+  if (!appState.auth.token) {
+    await tryAutoLogin();
+  } else {
+    await loadStateFromServer();
+  }
+
   registerServiceWorker();
 }
 
-function getProfileName() {
-  const params = new URLSearchParams(window.location.search);
-  const profile = params.get("perfil") || params.get("app");
-  if (profile && profile.trim()) {
-    return profile.trim();
-  }
-
-  let instanceId = sessionStorage.getItem(INSTANCE_STORAGE_KEY);
-  if (!instanceId) {
-    instanceId = `instancia-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    sessionStorage.setItem(INSTANCE_STORAGE_KEY, instanceId);
-  }
-
-  return instanceId;
-}
-
-function getStorageKey() {
-  return `${STORAGE_KEY_PREFIX}-${getProfileName()}`;
-}
-
-function loadApartados() {
+async function tryAutoLogin() {
   try {
-    const raw = localStorage.getItem(getStorageKey());
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const response = await apiRequest("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "admin", password: "admin123" })
+    });
+
+    setAuthSession(response);
+    await loadStateFromServer();
+    showNotice("Sesión activa en modo rápido.");
   } catch (error) {
-    console.error("No se pudieron leer los apartados", error);
-    return [];
+    console.warn("Auto-login fallido:", error.message);
+    const manualUser = localStorage.getItem("tenderopro-last-user");
+    if (manualUser) {
+      elements.authUser.textContent = `Usuario: ${manualUser}`;
+    }
   }
 }
 
-function saveApartados() {
-  localStorage.setItem(getStorageKey(), JSON.stringify(apartados));
-  render();
+function hydrateState() {
+  const saved = loadData();
+  appState.products = saved.products || [];
+  appState.clients = saved.clients || [];
+  appState.suppliers = saved.suppliers || [];
+  appState.purchases = saved.purchases || [];
+  appState.sales = saved.sales || [];
+  appState.debts = saved.debts || [];
+  appState.apartados = saved.apartados || [];
+  appState.expenses = saved.expenses || [];
+  appState.cash = { ...appState.cash, ...(saved.cash || {}) };
+  appState.settings = { ...appState.settings, ...(saved.settings || {}) };
+  appState.cart = [];
+  if (!appState.settings.storeName) appState.settings.storeName = "Tienda La Bendición";
+  elements.storeNameHeader.textContent = appState.settings.storeName;
 }
 
-function loadFiados() {
+function restoreAuthSession() {
   try {
-    const raw = localStorage.getItem(`${getStorageKey()}-fiados`);
-    if (!raw) return [];
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    appState.auth = {
+      token: parsed.token || null,
+      user: parsed.user || null
+    };
   } catch (error) {
-    console.error("No se pudieron leer los fiados", error);
-    return [];
+    console.error("No se pudo restaurar la sesión:", error);
+    appState.auth = { token: null, user: null };
   }
 }
 
-function saveFiados() {
-  localStorage.setItem(`${getStorageKey()}-fiados`, JSON.stringify(fiados));
-  renderFiados();
-}
-
-function handleNetworkChange() {
-  isOnline = navigator.onLine;
-  const message = isOnline
-    ? "Conexión activa. La app sigue disponible."
-    : "Sin conexión. Tus datos se guardan localmente y la app sigue lista.";
-  showNotice(message, isOnline ? 1800 : 3500);
-}
-
-function handleVisibilityChange() {
-  if (document.visibilityState === "visible") {
-    handleNetworkChange();
-  }
-}
-
-function handleCreateApartado(event) {
-  event.preventDefault();
-  const productName = document.getElementById("productName").value.trim();
-  const totalAmount = Number(document.getElementById("totalAmount").value);
-
-  if (!productName || !Number.isFinite(totalAmount) || totalAmount <= 0) {
-    showNotice("Completa el nombre y un monto válido.");
+function persistAuthSession() {
+  if (!appState.auth?.token) {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
     return;
   }
 
-  apartados.unshift({
-    id: createId(),
-    productName,
-    totalAmount,
-    totalPaid: 0,
-    status: "pendiente",
-    createdAt: new Date().toISOString(),
-    completedAt: null,
-    payments: []
-  });
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+    token: appState.auth.token,
+    user: appState.auth.user
+  }));
 
-  formEl.reset();
-  saveApartados();
-  showNotice(`Apartado de ${productName} guardado.`);
+  if (appState.auth.user?.username) {
+    localStorage.setItem("tenderopro-last-user", appState.auth.user.username);
+  }
 }
 
-function handleCreateFiado(event) {
-  event.preventDefault();
-  const fiadoName = document.getElementById("fiadoName").value.trim();
-  const fiadoConcept = document.getElementById("fiadoConcept").value.trim();
-  const fiadoTotal = Number(document.getElementById("fiadoTotal").value);
-  const fiadoAbono = Number(document.getElementById("fiadoAbono").value);
-
-  if (!fiadoName || !fiadoConcept || !Number.isFinite(fiadoTotal) || fiadoTotal <= 0 || !Number.isFinite(fiadoAbono) || fiadoAbono < 0) {
-    showNotice("Completa todos los datos del fiado.");
-    return;
-  }
-
-  const restante = Number(Math.max(fiadoTotal - fiadoAbono, 0).toFixed(2));
-
-  fiados.unshift({
-    id: createId(),
-    fiadoName,
-    fiadoConcept,
-    fiadoTotal,
-    fiadoAbono,
-    restante,
-    status: restante > 0 ? "pendiente" : "pagado",
-    createdAt: new Date().toISOString()
-  });
-
-  fiadoFormEl.reset();
-  saveFiados();
-  showNotice(`Fiado de ${fiadoName} guardado.`);
-}
-
-function handleFiadoPaymentSubmit(event) {
-  if (!event.target.classList.contains("payment-form")) return;
-
-  event.preventDefault();
-  const id = event.target.dataset.id;
-  const amount = Number(event.target.amount.value);
-  const note = event.target.note.value.trim();
-  const fiado = fiados.find((item) => item.id === id);
-
-  if (!fiado || !Number.isFinite(amount) || amount <= 0) {
-    showNotice("Ingresa un abono válido para el fiado.");
-    return;
-  }
-
-  fiado.fiadoAbono = Number((fiado.fiadoAbono + amount).toFixed(2));
-  fiado.restante = Number(Math.max(fiado.fiadoTotal - fiado.fiadoAbono, 0).toFixed(2));
-  fiado.status = fiado.restante > 0 ? "pendiente" : "pagado";
-
-  saveFiados();
-  showNotice(`Abono agregado a ${fiado.fiadoName}.`);
-}
-
-function handleFiadoActionClick(event) {
-  const button = event.target.closest("button[data-action]");
-  if (!button) return;
-
-  const id = button.dataset.id;
-  const fiado = fiados.find((item) => item.id === id);
-  if (!fiado) return;
-
-  if (button.dataset.action === "mark-paid") {
-    fiado.status = "pagado";
-    fiado.restante = 0;
-    fiado.fiadoAbono = fiado.fiadoTotal;
-  } else if (button.dataset.action === "mark-pending") {
-    fiado.status = "pendiente";
-    fiado.restante = Math.max(fiado.fiadoTotal - fiado.fiadoAbono, 0);
-  }
-
-  saveFiados();
-  showNotice(`Fiado actualizado para ${fiado.fiadoName}.`);
-}
-
-function handlePaymentSubmit(event) {
-  if (!event.target.classList.contains("payment-form")) return;
-
-  event.preventDefault();
-  const id = event.target.dataset.id;
-  const amount = Number(event.target.amount.value);
-  const note = event.target.note.value.trim();
-  const apartado = apartados.find((item) => item.id === id);
-
-  if (!apartado || !Number.isFinite(amount) || amount <= 0) {
-    showNotice("Ingresa un abono válido.");
-    return;
-  }
-
-  const timestamp = new Date();
-  const payment = {
-    id: createId(),
-    amount,
-    note: note || "Sin nota",
-    createdAt: timestamp.toISOString(),
-    dateLabel: formatDateTime(timestamp)
+function setAuthSession(data) {
+  appState.auth = {
+    token: data.token,
+    user: data.user || null
   };
-
-  apartado.payments.unshift(payment);
-  apartado.totalPaid = Number((apartado.totalPaid + amount).toFixed(2));
-  apartado.status = apartado.totalPaid >= apartado.totalAmount ? "completado" : apartado.totalPaid > 0 ? "en-progreso" : "pendiente";
-  apartado.completedAt = apartado.status === "completado" ? timestamp.toISOString() : null;
-
-  saveApartados();
-  showNotice(`Abono registrado. ${apartado.productName} ahora tiene ${formatCurrency(apartado.totalPaid)} pagados.`);
+  persistAuthSession();
+  renderAuthState();
 }
 
-function handleShareClick(event) {
-  const btn = event.target.closest(".share-btn");
-  if (!btn) return;
+function clearAuthSession() {
+  appState.auth = { token: null, user: null };
+  persistAuthSession();
+  renderAuthState();
+}
 
-  const apartado = apartados.find((item) => item.id === btn.dataset.id);
-  if (!apartado) return;
+function renderAuthState() {
+  const loggedIn = Boolean(appState.auth.token);
+  elements.appShell.style.display = loggedIn ? "block" : "none";
+  elements.authOverlay.style.display = loggedIn ? "none" : "flex";
+  const currentUser = appState.auth.user?.username || (appState.auth.token ? "admin" : "Invitado");
+  elements.authUser.textContent = loggedIn ? `Usuario: ${currentUser}` : "Invitado";
+  elements.logoutBtn.style.display = loggedIn ? "inline-flex" : "none";
+}
 
-  const statusText = apartado.status === "completado" ? "completado" : apartado.totalPaid > 0 ? "en progreso" : "pendiente";
-  const message = `Apartado de ${apartado.productName}\nFecha y hora del último movimiento: ${formatDateTime(new Date())}\nEstado: ${statusText}\nTotal: ${formatCurrency(apartado.totalAmount)}\nPagado: ${formatCurrency(apartado.totalPaid)}\nRestante: ${formatCurrency(Math.max(apartado.totalAmount - apartado.totalPaid, 0))}`;
+function apiRequest(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (!(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
 
-  const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+  if (appState.auth?.token) {
+    headers.set("Authorization", `Bearer ${appState.auth.token}`);
+  }
 
-  if (navigator.share) {
-    navigator.share({
-      title: `Apartado ${apartado.productName}`,
-      text: message
-    }).catch(() => window.open(whatsappUrl, "_blank", "noopener,noreferrer"));
-  } else {
-    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+  return fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers
+  }).then(async (response) => {
+    const isJson = response.headers.get("content-type")?.includes("application/json");
+    const payload = isJson ? await response.json() : null;
+
+    if (!response.ok) {
+      throw new Error(payload?.message || "Error en la API");
+    }
+
+    return payload;
+  });
+}
+
+async function loadStateFromServer() {
+  if (!appState.auth?.token) return;
+
+  try {
+    const data = await apiRequest("/state");
+    appState.products = data.products || [];
+    appState.clients = data.clients || [];
+    appState.suppliers = data.suppliers || [];
+    appState.purchases = data.purchases || [];
+    appState.sales = data.sales || [];
+    appState.debts = data.debts || [];
+    appState.apartados = data.apartados || [];
+    appState.expenses = data.expenses || [];
+    appState.cash = { ...appState.cash, ...(data.cash || {}) };
+    appState.settings = { ...appState.settings, ...(data.settings || {}) };
+    saveData();
+    renderAll();
+  } catch (error) {
+    console.error("Sincronización remota fallida:", error);
+    showNotice("No se pudo sincronizar con el servidor.");
   }
 }
 
-function render() {
-  const profileName = getProfileName();
-  if (profileEl) {
-    profileEl.textContent = `Perfil: ${profileName}`;
+async function syncStateToServer() {
+  if (!appState.auth?.token || !navigator.onLine) return;
+
+  try {
+    await apiRequest("/state", {
+      method: "PUT",
+      body: JSON.stringify({
+        products: appState.products,
+        clients: appState.clients,
+        suppliers: appState.suppliers,
+        purchases: appState.purchases,
+        sales: appState.sales,
+        debts: appState.debts,
+        apartados: appState.apartados,
+        expenses: appState.expenses,
+        cash: appState.cash,
+        settings: appState.settings
+      })
+    });
+  } catch (error) {
+    console.warn("No se pudo guardar en el servidor:", error);
   }
-  counterEl.textContent = `${apartados.length} ${apartados.length === 1 ? "registro" : "registros"}`;
-  renderFiados();
-
-  if (!apartados.length) {
-    listEl.innerHTML = `
-      <div class="empty-state">
-        <h3>Aún no hay apartados</h3>
-        <p>Agrega el nombre del producto y el precio total para empezar.</p>
-      </div>
-    `;
-    return;
-  }
-
-  listEl.innerHTML = apartados
-    .map((apartado) => {
-      const progress = Math.min((apartado.totalPaid / apartado.totalAmount) * 100, 100);
-      const remaining = Math.max(apartado.totalAmount - apartado.totalPaid, 0);
-      const statusClass = apartado.status === "completado" ? "status-complete" : apartado.status === "en-progreso" ? "status-progress" : "status-pending";
-      const statusLabel = apartado.status === "completado" ? "Completado" : apartado.status === "en-progreso" ? "En progreso" : "Pendiente";
-
-      return `
-        <article class="apartado-card">
-          <div class="card-head">
-            <div>
-              <h3>${escapeHtml(apartado.productName)}</h3>
-              <p>Creado ${formatDateTime(new Date(apartado.createdAt))}</p>
-            </div>
-            <span class="status-chip ${statusClass}">${statusLabel}</span>
-          </div>
-
-          <div class="metric-row">
-            <div class="metric">
-              <small>Total</small>
-              <strong>${formatCurrency(apartado.totalAmount)}</strong>
-            </div>
-            <div class="metric">
-              <small>Pagado</small>
-              <strong>${formatCurrency(apartado.totalPaid)}</strong>
-            </div>
-            <div class="metric">
-              <small>Restante</small>
-              <strong>${formatCurrency(remaining)}</strong>
-            </div>
-          </div>
-
-          <div class="progress-bar" aria-label="Progreso del apartado">
-            <span style="width: ${progress}%"></span>
-          </div>
-
-          <form class="payment-form" data-id="${apartado.id}">
-            <input type="number" step="0.01" min="0.01" name="amount" placeholder="Monto del abono" required />
-            <input type="text" name="note" placeholder="Nota opcional" />
-            <button class="payment-btn" type="submit">Registrar</button>
-          </form>
-
-          <div class="action-row">
-            <span class="pill">${apartado.payments.length} ${apartado.payments.length === 1 ? "abono" : "abonos"}</span>
-            <button class="share-btn" type="button" data-id="${apartado.id}">Enviar mensaje</button>
-          </div>
-
-          <ul class="history">
-            ${apartado.payments.length
-              ? apartado.payments
-                  .map(
-                    (payment) => `
-                      <li>
-                        <strong>${formatCurrency(payment.amount)}</strong> · ${payment.note} · ${payment.dateLabel}
-                      </li>
-                    `
-                  )
-                  .join("")
-              : '<li>No hay abonos registrados aún.</li>'}
-          </ul>
-        </article>
-      `;
-    })
-    .join("");
 }
 
-function renderFiados() {
-  if (!fiadosListEl) return;
+function bindEvents() {
+  elements.tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const tab = button.dataset.tab;
+      elements.tabButtons.forEach((item) => item.classList.toggle("active", item === button));
+      document.querySelectorAll(".view").forEach((section) => section.classList.toggle("active", section.id === `${tab}View`));
+    });
+  });
 
-  if (!fiados.length) {
-    fiadosListEl.innerHTML = `
-      <div class="empty-state">
-        <h3>No hay fiados registrados</h3>
-        <p>Agrega a quien le fiaron y se calculará su saldo automáticamente.</p>
-      </div>
-    `;
-    return;
+  elements.posSearch.addEventListener("input", renderProductPicker);
+  elements.discountInput.addEventListener("input", updateTotalsAndPaymentState);
+  elements.posPaymentForm.addEventListener("submit", handleSaleSubmit);
+  elements.clearCartBtn.addEventListener("click", () => {
+    appState.cart = [];
+    renderCart();
+    showNotice("Carrito vaciado.");
+  });
+  elements.cancelSaleBtn.addEventListener("click", () => {
+    appState.cart = [];
+    renderCart();
+    showNotice("Venta cancelada.");
+  });
+
+  elements.loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const username = String(formData.get("username") || "").trim();
+    const password = String(formData.get("password") || "");
+
+    try {
+      const response = await apiRequest("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password })
+      });
+
+      setAuthSession(response);
+      localStorage.setItem("tenderopro-last-user", username);
+      // force change password if required
+      if (response.mustChangePassword) {
+        let ok = false;
+        while (!ok) {
+          const np = prompt('Tu contraseña debe cambiarse. Ingresa la nueva contraseña (mínimo 6 caracteres):');
+          if (!np || np.length < 6) { alert('La contraseña debe tener al menos 6 caracteres.'); continue; }
+          try {
+            await apiRequest('/auth/change-password', { method: 'POST', body: JSON.stringify({ newPassword: np }) });
+            ok = true;
+            showNotice('Contraseña actualizada.');
+          } catch (e) {
+            alert('No se pudo cambiar la contraseña: ' + e.message);
+          }
+        }
+      }
+
+      await loadStateFromServer();
+      showNotice("Sesión iniciada correctamente.");
+    } catch (error) {
+      showNotice(error.message || "No se pudo iniciar sesión.");
+    }
+  });
+
+  elements.logoutBtn.addEventListener("click", () => {
+    clearAuthSession();
+    showNotice("Sesión cerrada.");
+  });
+
+  elements.inventoryMovementForm.addEventListener("submit", handleMovementSubmit);
+  elements.productForm.addEventListener("submit", handleProductSubmit);
+  elements.supplierForm.addEventListener("submit", handleSupplierSubmit);
+  elements.purchaseForm.addEventListener("submit", handlePurchaseSubmit);
+  elements.clientForm.addEventListener("submit", handleClientSubmit);
+  elements.creditForm.addEventListener("submit", handleCreditSubmit);
+  elements.apartadoForm.addEventListener("submit", handleApartadoSubmit);
+  elements.expenseForm.addEventListener("submit", handleExpenseSubmit);
+  elements.userForm.addEventListener("submit", handleUserSubmit);
+  elements.cashOpenForm.addEventListener("submit", handleCashOpen);
+  elements.closeCashBtn.addEventListener("click", handleCashClose);
+  elements.exportBackupBtn.addEventListener("click", exportBackup);
+  elements.importBackupInput.addEventListener("change", importBackup);
+
+  elements.posPaymentForm.querySelectorAll('input[type="number"]').forEach((input) => {
+    input.addEventListener("input", updateTotalsAndPaymentState);
+  });
+
+  window.addEventListener("online", () => {
+    updateConnectionStatus();
+    showNotice("Conexión restablecida.");
+  });
+  window.addEventListener("offline", () => {
+    updateConnectionStatus();
+    showNotice("Sin conexión. La app sigue funcionando localmente.");
+  });
+}
+
+function renderAll() {
+  renderDashboard();
+  renderProductPicker();
+  renderCart();
+  renderInventory();
+  renderSuppliers();
+  renderClients();
+  renderCredits();
+  renderApartados();
+  renderExpenses();
+  renderCash();
+  renderSales();
+  renderReports();
+  renderUsers();
+  renderPurchases();
+}
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { products: [], clients: [], sales: [], debts: [], apartados: [], expenses: [], cash: {}, settings: {} };
+  } catch (error) {
+    console.error(error);
+    return { products: [], clients: [], sales: [], debts: [], apartados: [], expenses: [], cash: {}, settings: {} };
   }
-
-  fiadosListEl.innerHTML = fiados
-    .map((fiado) => {
-      const statusClass = fiado.status === "pagado" ? "status-complete" : "status-pending";
-      const statusLabel = fiado.status === "pagado" ? "Pagado" : "Pendiente";
-      return `
-        <article class="apartado-card">
-          <div class="card-head">
-            <div>
-              <h3>${escapeHtml(fiado.fiadoName)}</h3>
-              <p>${escapeHtml(fiado.fiadoConcept)}</p>
-            </div>
-            <span class="status-chip ${statusClass}">${statusLabel}</span>
-          </div>
-          <div class="metric-row">
-            <div class="metric">
-              <small>Total</small>
-              <strong>${formatCurrency(fiado.fiadoTotal)}</strong>
-            </div>
-            <div class="metric">
-              <small>Abono</small>
-              <strong>${formatCurrency(fiado.fiadoAbono)}</strong>
-            </div>
-            <div class="metric">
-              <small>Restante</small>
-              <strong>${formatCurrency(fiado.restante)}</strong>
-            </div>
-          </div>
-
-          <form class="payment-form" data-id="${fiado.id}">
-            <input type="number" step="0.01" min="0.01" name="amount" placeholder="Agregar abono" required />
-            <input type="text" name="note" placeholder="Nota opcional" />
-            <button class="payment-btn" type="submit">Agregar</button>
-          </form>
-
-          <div class="action-row">
-            <button class="share-btn" type="button" data-action="mark-paid" data-id="${fiado.id}">Marcar pagado</button>
-            <button class="secondary-btn" type="button" data-action="mark-pending" data-id="${fiado.id}">Marcar pendiente</button>
-            <button class="share-btn" type="button" onclick="window.print()">Imprimir comprobante</button>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
 }
 
-function resetAllData() {
-  const confirmed = confirm("¿Deseas borrar todos los apartados guardados para este perfil?");
-  if (!confirmed) return;
-  apartados = [];
-  fiados = [];
-  localStorage.removeItem(getStorageKey());
-  localStorage.removeItem(`${getStorageKey()}-fiados`);
-  render();
-  showNotice("Se borraron todos los datos de este perfil.");
+function saveData() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    products: appState.products,
+    clients: appState.clients,
+    suppliers: appState.suppliers,
+    purchases: appState.purchases,
+    sales: appState.sales,
+    debts: appState.debts,
+    apartados: appState.apartados,
+    expenses: appState.expenses,
+    cash: appState.cash,
+    settings: appState.settings
+  }));
+
+  if (appState.auth?.token && navigator.onLine) {
+    window.setTimeout(() => syncStateToServer(), 200);
+  }
 }
 
-function showNotice(message, duration = 2800) {
-  noticeEl.textContent = message;
-  window.clearTimeout(showNotice.timeout);
-  showNotice.timeout = window.setTimeout(() => {
-    noticeEl.textContent = "";
+function showNotice(message, duration = NOTICE_TIMEOUT) {
+  elements.notice.textContent = message;
+  clearTimeout(showNotice.timer);
+  showNotice.timer = setTimeout(() => {
+    elements.notice.textContent = "";
   }, duration);
 }
 
-function formatCurrency(value) {
-  return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(value);
+function currency(value) {
+  return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(Number(value || 0));
 }
 
-function formatDateTime(date) {
-  return new Intl.DateTimeFormat("es-MX", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(date);
+function formatDate(dateValue) {
+  const date = dateValue ? new Date(dateValue) : new Date();
+  return Number.isNaN(date.getTime()) ? "Sin fecha" : new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(date);
 }
 
-function formatDate(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("es-MX", { dateStyle: "medium" }).format(date);
+function formatDateTime(dateValue) {
+  const date = dateValue ? new Date(dateValue) : new Date();
+  return Number.isNaN(date.getTime()) ? "Sin fecha" : new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
-function createId() {
-  return (window.crypto?.randomUUID?.() || `id-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+function createId(prefix = "id") {
+  return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now().toString(36)}`;
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+function updateConnectionStatus() {
+  const isOnline = navigator.onLine;
+  elements.connectionStatus.textContent = isOnline ? "Online" : "Offline";
+  elements.connectionStatus.classList.toggle("online", isOnline);
+  elements.connectionStatus.classList.toggle("offline", !isOnline);
+}
+
+function addProductToCart(productId) {
+  const product = appState.products.find((item) => item.id === productId);
+  if (!product) return;
+
+  const existing = appState.cart.find((item) => item.id === productId);
+  if (existing) {
+    existing.quantity += 1;
+  } else {
+    appState.cart.push({ id: product.id, name: product.name, price: Number(product.salePrice || 0), quantity: 1, sku: product.sku });
+  }
+
+  renderCart();
+}
+
+function changeCartQuantity(productId, delta) {
+  const item = appState.cart.find((entry) => entry.id === productId);
+  if (!item) return;
+  item.quantity += delta;
+  if (item.quantity <= 0) {
+    appState.cart = appState.cart.filter((entry) => entry.id !== productId);
+  }
+  renderCart();
+}
+
+function renderProductPicker() {
+  const query = (elements.posSearch.value || "").toLowerCase().trim();
+  const filtered = appState.products.filter((product) => {
+    const haystack = `${product.name} ${product.sku} ${product.barcode || ""}`.toLowerCase();
+    return haystack.includes(query);
+  }).slice(0, 12);
+
+  if (!filtered.length) {
+    elements.productPicker.innerHTML = '<div class="empty-state">No hay productos para mostrar.</div>';
+    return;
+  }
+
+  elements.productPicker.innerHTML = filtered.map((product) => `
+    <div class="product-item">
+      <div>
+        <strong>${product.name}</strong>
+        <div class="meta">SKU: ${product.sku} · Stock: ${product.stock}</div>
+      </div>
+      <div>
+        <div class="meta">${currency(product.salePrice)}</div>
+        <button class="btn" type="button" data-product-id="${product.id}">Agregar</button>
+      </div>
+    </div>
+  `).join("");
+
+  elements.productPicker.querySelectorAll("[data-product-id]").forEach((button) => {
+    button.addEventListener("click", () => addProductToCart(button.dataset.productId));
+  });
+}
+
+function getCartSubtotal() {
+  return appState.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+}
+
+function updateTotalsAndPaymentState() {
+  const subtotal = getCartSubtotal();
+  const discount = Number(elements.discountInput.value || 0);
+  const total = Math.max(subtotal - discount, 0);
+  const paymentInputs = Array.from(elements.posPaymentForm.querySelectorAll('input[type="number"]'));
+  const received = paymentInputs.reduce((sum, input) => sum + Number(input.value || 0), 0);
+  const change = Math.max(received - total, 0);
+
+  elements.subtotalLabel.textContent = currency(subtotal);
+  elements.discountLabel.textContent = currency(discount);
+  elements.totalLabel.textContent = currency(total);
+  elements.receivedLabel.textContent = currency(received);
+  elements.changeLabel.textContent = currency(change);
+}
+
+function renderCart() {
+  if (!appState.cart.length) {
+    elements.cartItems.innerHTML = '<div class="empty-state">El carrito está vacío.</div>';
+    updateTotalsAndPaymentState();
+    return;
+  }
+
+  elements.cartItems.innerHTML = appState.cart.map((item) => `
+    <div class="cart-row">
+      <div>
+        <strong>${item.name}</strong>
+        <div class="meta">${currency(item.price)} c/u</div>
+      </div>
+      <div class="qty">
+        <button type="button" data-op="minus" data-product-id="${item.id}">-</button>
+        <span>${item.quantity}</span>
+        <button type="button" data-op="plus" data-product-id="${item.id}">+</button>
+      </div>
+    </div>
+  `).join("");
+
+  elements.cartItems.querySelectorAll("[data-product-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const productId = button.dataset.productId;
+      if (button.dataset.op === "plus") changeCartQuantity(productId, 1);
+      if (button.dataset.op === "minus") changeCartQuantity(productId, -1);
+    });
+  });
+
+  updateTotalsAndPaymentState();
+}
+
+function handleSaleSubmit(event) {
+  event.preventDefault();
+
+  if (!appState.cart.length) {
+    showNotice("Agrega productos al carrito antes de vender.");
+    return;
+  }
+
+  const subtotal = getCartSubtotal();
+  const discount = Number(elements.discountInput.value || 0);
+  const total = Math.max(subtotal - discount, 0);
+  const paymentValues = {
+    efectivo: Number(elements.posPaymentForm.elements.efectivo.value || 0),
+    nequi: Number(elements.posPaymentForm.elements.nequi.value || 0),
+    daviplata: Number(elements.posPaymentForm.elements.daviplata.value || 0),
+    transferencia: Number(elements.posPaymentForm.elements.transferencia.value || 0),
+    tarjeta: Number(elements.posPaymentForm.elements.tarjeta.value || 0),
+    otro: Number(elements.posPaymentForm.elements.otro.value || 0)
+  };
+
+  const received = Object.values(paymentValues).reduce((sum, value) => sum + value, 0);
+  if (received < total) {
+    showNotice("El valor recibido es menor al total de la venta.");
+    return;
+  }
+
+  const sale = {
+    id: createId("sale"),
+    createdAt: new Date().toISOString(),
+    items: appState.cart.map((item) => ({ ...item })),
+    subtotal,
+    discount,
+    total,
+    payment: paymentValues,
+    received,
+    change: received - total,
+    status: "completed"
+  };
+
+  appState.sales.unshift(sale);
+
+  appState.cart.forEach((item) => {
+    const product = appState.products.find((entry) => entry.id === item.id);
+    if (product) {
+      product.stock = Math.max(0, Number(product.stock || 0) - Number(item.quantity || 0));
+      product.updatedAt = new Date().toISOString();
+    }
+  });
+
+  if (appState.cash.open) {
+    appState.cash.totalSales += total;
+    appState.cash.totalCashIn += received;
+  }
+
+  appState.cart = [];
+  elements.posPaymentForm.reset();
+  elements.discountInput.value = 0;
+  saveData();
+  renderAll();
+  showNotice("Venta registrada correctamente.");
+}
+
+function renderSales() {
+  if (!appState.sales.length) {
+    elements.salesList.innerHTML = '<div class="empty-state">No hay ventas registradas.</div>';
+    return;
+  }
+
+  elements.salesList.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Productos</th>
+          <th>Total</th>
+          <th>Pago</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${appState.sales.slice(0, 10).map((sale) => `
+          <tr>
+            <td>${formatDateTime(sale.createdAt)}</td>
+            <td>${sale.items.map((item) => `${item.name} x${item.quantity}`).join(", ")}</td>
+            <td>${currency(sale.total)}</td>
+            <td>${Object.entries(sale.payment).filter(([, value]) => value > 0).map(([method, value]) => `${method}: ${currency(value)}`).join(" / ") || "Efectivo"}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function handleProductSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const product = {
+    id: createId("prod"),
+    sku: String(formData.get("sku") || "").trim(),
+    barcode: String(formData.get("barcode") || "").trim(),
+    name: String(formData.get("name") || "").trim(),
+    brand: String(formData.get("brand") || "").trim(),
+    category: String(formData.get("category") || "").trim(),
+    supplier: String(formData.get("supplier") || "").trim(),
+    purchasePrice: Number(formData.get("purchasePrice") || 0),
+    salePrice: Number(formData.get("salePrice") || 0),
+    stock: Number(formData.get("stock") || 0),
+    minStock: Number(formData.get("minStock") || 0),
+    maxStock: Number(formData.get("maxStock") || 0),
+    unit: String(formData.get("unit") || "und").trim(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  if (!product.name || !product.sku || !product.salePrice) {
+    showNotice("Completa nombre, SKU y precio de venta.");
+    return;
+  }
+
+  appState.products.unshift(product);
+  event.currentTarget.reset();
+  saveData();
+  renderAll();
+  showNotice("Producto guardado correctamente.");
+}
+
+async function handleSupplierSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const payload = {
+    name: String(formData.get("name") || "").trim(),
+    phone: String(formData.get("phone") || "").trim(),
+    whatsapp: String(formData.get("whatsapp") || "").trim(),
+    nit: String(formData.get("nit") || "").trim(),
+    email: String(formData.get("email") || "").trim(),
+    address: String(formData.get("address") || "").trim(),
+    contact: String(formData.get("contact") || "").trim()
+  };
+
+  if (!payload.name) {
+    showNotice("El nombre del proveedor es obligatorio.");
+    return;
+  }
+
+  try {
+    const supplier = await apiRequest("/suppliers", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    appState.suppliers.unshift(supplier);
+    event.currentTarget.reset();
+    saveData();
+    renderSuppliers();
+    showNotice("Proveedor guardado.");
+  } catch (error) {
+    showNotice(error.message || "No se pudo guardar el proveedor.");
+  }
+}
+
+async function handlePurchaseSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const supplierId = elements.purchaseSupplierSelect.value;
+  const productId = elements.purchaseProductSelect.value;
+  const quantity = Number(elements.purchaseQty.value || 0);
+  const costPrice = Number(elements.purchaseCostPrice.value || 0);
+
+  if (!supplierId || !productId || quantity <= 0) {
+    showNotice("Selecciona proveedor, producto y cantidad válidas.");
+    return;
+  }
+
+  try {
+    const purchase = await apiRequest("/purchases", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId,
+        invoiceNumber: String(formData.get("invoiceNumber") || "").trim(),
+        date: String(formData.get("date") || new Date().toISOString().slice(0, 10)),
+        paymentMethod: String(formData.get("paymentMethod") || "Efectivo"),
+        items: [{ productId, productName: appState.products.find((item) => item.id === productId)?.name || "", quantity, costPrice }]
+      })
+    });
+
+    appState.purchases.unshift(purchase);
+    const product = appState.products.find((item) => item.id === productId);
+    if (product) {
+      product.purchasePrice = costPrice || Number(product.purchasePrice || 0);
+      product.stock = Number(product.stock || 0) + quantity;
+      product.updatedAt = new Date().toISOString();
+    }
+
+    event.currentTarget.reset();
+    elements.purchaseQty.value = 1;
+    elements.purchaseCostPrice.value = 0;
+    saveData();
+    renderAll();
+    showNotice("Compra registrada.");
+  } catch (error) {
+    showNotice(error.message || "No se pudo registrar la compra.");
+  }
+}
+
+function renderInventory() {
+  const select = elements.movementProductSelect;
+  const purchaseProductSelect = elements.purchaseProductSelect;
+  select.innerHTML = appState.products.map((product) => `<option value="${product.id}">${product.name} (${product.stock})</option>`).join("");
+  purchaseProductSelect.innerHTML = appState.products.map((product) => `<option value="${product.id}">${product.name}</option>`).join("");
+
+  if (!appState.products.length) {
+    elements.inventoryList.innerHTML = '<div class="empty-state">No hay productos en inventario.</div>';
+    return;
+  }
+
+  elements.inventoryList.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>SKU</th>
+          <th>Compra</th>
+          <th>Venta</th>
+          <th>Stock</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${appState.products.map((product) => {
+          const state = Number(product.stock) <= Number(product.minStock || 0) ? "Stock bajo" : "Activo";
+          return `
+            <tr>
+              <td>${product.name}</td>
+              <td>${product.sku}</td>
+              <td>${currency(product.purchasePrice)}</td>
+              <td>${currency(product.salePrice)}</td>
+              <td>${product.stock}</td>
+              <td>${state}</td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderSuppliers() {
+  const select = elements.purchaseSupplierSelect;
+  select.innerHTML = appState.suppliers.map((supplier) => `<option value="${supplier.id}">${supplier.name}</option>`).join("");
+
+  if (!appState.suppliers.length) {
+    elements.suppliersList.innerHTML = '<div class="empty-state">No hay proveedores registrados.</div>';
+    return;
+  }
+
+  elements.suppliersList.innerHTML = appState.suppliers.map((supplier) => `
+    <div class="card-item">
+      <div>
+        <strong>${supplier.name}</strong>
+        <div class="meta">${supplier.phone || "Sin teléfono"} · ${supplier.email || "Sin email"}</div>
+      </div>
+      <span class="chip">${supplier.active === false ? "Inactivo" : "Activo"}</span>
+    </div>
+  `).join("");
+}
+
+function renderPurchases() {
+  if (!appState.purchases.length) {
+    elements.purchasesList.innerHTML = '<div class="empty-state">No hay compras registradas.</div>';
+    return;
+  }
+
+  elements.purchasesList.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Proveedor</th>
+          <th>Factura</th>
+          <th>Fecha</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${appState.purchases.map((purchase) => {
+          const supplier = appState.suppliers.find((item) => item.id === purchase.supplierId);
+          return `
+            <tr>
+              <td>${supplier ? supplier.name : "Proveedor"}</td>
+              <td>${purchase.invoiceNumber || "-"}</td>
+              <td>${formatDate(purchase.date)}</td>
+              <td>${currency(purchase.total || 0)}</td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+async function renderUsers() {
+  if (!appState.auth?.token) {
+    elements.usersList.innerHTML = '<div class="empty-state">Inicia sesión para ver usuarios.</div>';
+    return;
+  }
+
+  try {
+    const users = await apiRequest("/users");
+    if (!users.length) {
+      elements.usersList.innerHTML = '<div class="empty-state">No hay usuarios registrados.</div>';
+      return;
+    }
+
+    elements.usersList.innerHTML = users.map((user) => `
+      <div class="card-item">
+        <div>
+          <strong>${user.username}</strong>
+          <div class="meta">${user.role} · ${user.active ? "Activo" : "Inactivo"}</div>
+        </div>
+      </div>
+    `).join("");
+  } catch (error) {
+    elements.usersList.innerHTML = '<div class="empty-state">No se pudieron cargar los usuarios.</div>';
+  }
+}
+
+async function handleUserSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const username = String(formData.get("username") || "").trim();
+  const password = String(formData.get("password") || "");
+  const role = String(formData.get("role") || "EMPLEADO");
+
+  if (!username || !password || password.length < 6) {
+    showNotice("Usa usuario y contraseña válida (mínimo 6 caracteres).");
+    return;
+  }
+
+  try {
+    await apiRequest("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ username, password, role })
+    });
+
+    event.currentTarget.reset();
+    await renderUsers();
+    showNotice("Usuario creado correctamente.");
+  } catch (error) {
+    showNotice(error.message || "No se pudo crear el usuario.");
+  }
+}
+
+function handleMovementSubmit(event) {
+  event.preventDefault();
+  const productId = elements.movementProductSelect.value;
+  const type = elements.movementType.value;
+  const quantity = Number(elements.movementQty.value || 0);
+
+  if (!productId || quantity <= 0) {
+    showNotice("Selecciona un producto y cantidad válida.");
+    return;
+  }
+
+  const product = appState.products.find((item) => item.id === productId);
+  if (!product) return;
+
+  const currentStock = Number(product.stock || 0);
+  const nextStock = type === "entrada" ? currentStock + quantity : type === "salida" ? currentStock - quantity : currentStock;
+
+  if (type !== "entrada" && nextStock < 0) {
+    showNotice("No se puede registrar una salida mayor al stock disponible.");
+    return;
+  }
+
+  product.stock = Math.max(0, nextStock);
+  product.updatedAt = new Date().toISOString();
+  saveData();
+  renderAll();
+  showNotice(`Movimiento ${type} registrado.`);
+}
+
+function handleClientSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const client = {
+    id: createId("client"),
+    name: String(formData.get("name") || "").trim(),
+    phone: String(formData.get("phone") || "").trim(),
+    whatsapp: String(formData.get("whatsapp") || "").trim(),
+    address: String(formData.get("address") || "").trim(),
+    familyContact: String(formData.get("familyContact") || "").trim(),
+    createdAt: new Date().toISOString(),
+    active: true
+  };
+
+  if (!client.name) {
+    showNotice("El nombre del cliente es obligatorio.");
+    return;
+  }
+
+  appState.clients.unshift(client);
+  event.currentTarget.reset();
+  saveData();
+  renderAll();
+  showNotice("Cliente guardado.");
+}
+
+function renderClients() {
+  const creditSelect = elements.creditClientSelect;
+  const apartSelect = elements.apartadoClientSelect;
+  const options = appState.clients.map((client) => `<option value="${client.id}">${client.name}</option>`).join("");
+  creditSelect.innerHTML = options;
+  apartSelect.innerHTML = options;
+
+  if (!appState.clients.length) {
+    elements.clientsList.innerHTML = '<div class="empty-state">No hay clientes registrados.</div>';
+    return;
+  }
+
+  elements.clientsList.innerHTML = appState.clients.map((client) => `
+    <div class="card-item">
+      <div>
+        <strong>${client.name}</strong>
+        <div class="meta">${client.phone || "Sin teléfono"} · ${client.whatsapp || "Sin WhatsApp"}</div>
+      </div>
+      <button type="button" class="btn btn-secondary">Ver</button>
+    </div>
+  `).join("");
+}
+
+function handleCreditSubmit(event) {
+  event.preventDefault();
+  const clientId = elements.creditClientSelect.value;
+  const amount = Number(event.currentTarget.amount.value || 0);
+  const concept = String(event.currentTarget.concept.value || "").trim();
+
+  if (!clientId || !amount) {
+    showNotice("Selecciona cliente y monto válido.");
+    return;
+  }
+
+  const debt = {
+    id: createId("debt"),
+    clientId,
+    amount,
+    balance: amount,
+    concept: concept || "Fiado",
+    status: "pendiente",
+    createdAt: new Date().toISOString(),
+    payments: []
+  };
+
+  appState.debts.unshift(debt);
+  event.currentTarget.reset();
+  saveData();
+  renderCredits();
+  showNotice("Fiado registrado.");
+}
+
+function renderCredits() {
+  if (!appState.debts.length) {
+    elements.creditsList.innerHTML = '<div class="empty-state">No hay fiados registrados.</div>';
+    return;
+  }
+
+  elements.creditsList.innerHTML = appState.debts.map((debt) => {
+    const client = appState.clients.find((entry) => entry.id === debt.clientId);
+    return `
+      <div class="card-item">
+        <div>
+          <strong>${client ? client.name : "Cliente"}</strong>
+          <div class="meta">${debt.concept} · Saldo ${currency(debt.balance)}</div>
+        </div>
+        <button type="button" class="btn btn-secondary" data-debt-id="${debt.id}">Abonar</button>
+      </div>
+    `;
+  }).join("");
+
+  elements.creditsList.querySelectorAll("[data-debt-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const debt = appState.debts.find((entry) => entry.id === button.dataset.debtId);
+      if (!debt) return;
+      const amount = Number(prompt("Ingrese el valor del abono:", "0") || 0);
+      if (!amount || amount <= 0) return;
+      debt.balance = Math.max(0, debt.balance - amount);
+      debt.payments.push({ amount, createdAt: new Date().toISOString() });
+      if (debt.balance <= 0) debt.status = "pagado";
+      saveData();
+      renderCredits();
+      showNotice("Abono registrado.");
+    });
+  });
+}
+
+function handleApartadoSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const clientId = elements.apartadoClientSelect.value;
+  const total = Number(formData.get("total") || 0);
+  const initialPayment = Number(formData.get("initialPayment") || 0);
+  const dueDate = String(formData.get("dueDate") || "").trim();
+
+  if (!clientId || !total || total <= 0) {
+    showNotice("Selecciona cliente y un valor válido para el apartado.");
+    return;
+  }
+
+  const apartado = {
+    id: createId("apartado"),
+    clientId,
+    productName: String(formData.get("productName") || "").trim(),
+    totalAmount: total,
+    totalPaid: initialPayment,
+    status: "activo",
+    dueDate,
+    createdAt: new Date().toISOString(),
+    payments: [{ amount: initialPayment, createdAt: new Date().toISOString(), type: "abono inicial" }]
+  };
+
+  appState.apartados.unshift(apartado);
+  event.currentTarget.reset();
+  saveData();
+  renderApartados();
+  showNotice("Apartado guardado.");
+}
+
+function renderApartados() {
+  if (!appState.apartados.length) {
+    elements.apartadosList.innerHTML = '<div class="empty-state">No hay apartados registrados.</div>';
+    return;
+  }
+
+  elements.apartadosList.innerHTML = appState.apartados.map((apartado) => {
+    const client = appState.clients.find((entry) => entry.id === apartado.clientId);
+    const remaining = Math.max(apartado.totalAmount - apartado.totalPaid, 0);
+    return `
+      <div class="card-item">
+        <div>
+          <strong>${apartado.productName}</strong>
+          <div class="meta">${client ? client.name : "Cliente"} · saldo ${currency(remaining)} · vence ${apartado.dueDate || "sin fecha"}</div>
+        </div>
+        <button type="button" class="btn btn-secondary" data-apartado-id="${apartado.id}">Abonar</button>
+      </div>
+    `;
+  }).join("");
+
+  elements.apartadosList.querySelectorAll("[data-apartado-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const apartado = appState.apartados.find((entry) => entry.id === button.dataset.apartadoId);
+      if (!apartado) return;
+      const amount = Number(prompt("Ingrese el abono del apartado:", "0") || 0);
+      if (!amount || amount <= 0) return;
+      apartado.totalPaid += amount;
+      apartado.payments.push({ amount, createdAt: new Date().toISOString(), type: "abono" });
+      apartado.status = apartado.totalPaid >= apartado.totalAmount ? "pagado" : "activo";
+      saveData();
+      renderApartados();
+      showNotice("Abono de apartado registrado.");
+    });
+  });
+}
+
+function handleExpenseSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const expense = {
+    id: createId("exp"),
+    category: String(formData.get("category") || "").trim(),
+    amount: Number(formData.get("amount") || 0),
+    concept: String(formData.get("concept") || "").trim(),
+    date: String(formData.get("date") || new Date().toISOString().slice(0, 10)),
+    method: String(formData.get("method") || "Efectivo").trim(),
+    createdAt: new Date().toISOString()
+  };
+
+  if (!expense.concept || !expense.amount) {
+    showNotice("Concepto y valor del gasto son obligatorios.");
+    return;
+  }
+
+  appState.expenses.unshift(expense);
+  if (appState.cash.open) {
+    appState.cash.totalExpenses += expense.amount;
+  }
+  event.currentTarget.reset();
+  saveData();
+  renderExpenses();
+  renderDashboard();
+  showNotice("Gasto registrado.");
+}
+
+function renderExpenses() {
+  if (!appState.expenses.length) {
+    elements.expensesList.innerHTML = '<div class="empty-state">No hay gastos registrados.</div>';
+    return;
+  }
+
+  elements.expensesList.innerHTML = appState.expenses.map((expense) => `
+    <div class="expense-item">
+      <div>
+        <strong>${expense.concept}</strong>
+        <div class="meta">${expense.category} · ${formatDate(expense.date)} · ${expense.method}</div>
+      </div>
+      <strong>${currency(expense.amount)}</strong>
+    </div>
+  `).join("");
+}
+
+function handleCashOpen(event) {
+  event.preventDefault();
+  const base = Number(elements.cashBaseInput.value || 0);
+  const user = String(elements.cashUserInput.value || "Admin").trim();
+
+  appState.cash = {
+    open: true,
+    openedAt: new Date().toISOString(),
+    openedBy: user,
+    base,
+    totalSales: 0,
+    totalCashIn: 0,
+    totalExpenses: 0,
+    lastClosedAt: null
+  };
+
+  saveData();
+  renderCash();
+  showNotice("Caja abierta.");
+}
+
+function handleCashClose() {
+  if (!appState.cash.open) {
+    showNotice("La caja no está abierta.");
+    return;
+  }
+
+  const expectedCash = Number(appState.cash.base || 0) + Number(appState.cash.totalSales || 0) - Number(appState.cash.totalExpenses || 0);
+  const cashCounted = Number(prompt("Ingrese el efectivo contado al cerrar caja:", String(expectedCash)) || 0);
+
+  appState.cash.open = false;
+  appState.cash.lastClosedAt = new Date().toISOString();
+  appState.cash.closedBy = appState.cash.openedBy;
+  appState.cash.cashCounted = cashCounted;
+  appState.cash.difference = cashCounted - expectedCash;
+
+  saveData();
+  renderCash();
+  showNotice("Cierre de caja registrado.");
+}
+
+function renderCash() {
+  const cash = appState.cash;
+  const expectedCash = Number(cash.base || 0) + Number(cash.totalSales || 0) - Number(cash.totalExpenses || 0);
+  elements.cashSummary.innerHTML = `
+    <div class="item"><span>Estado</span><strong>${cash.open ? "Abierta" : "Cerrada"}</strong></div>
+    <div class="item"><span>Base inicial</span><strong>${currency(cash.base || 0)}</strong></div>
+    <div class="item"><span>Ventas</span><strong>${currency(cash.totalSales || 0)}</strong></div>
+    <div class="item"><span>Gastos</span><strong>${currency(cash.totalExpenses || 0)}</strong></div>
+    <div class="item"><span>Esperado</span><strong>${currency(expectedCash)}</strong></div>
+    <div class="item"><span>Último cierre</span><strong>${cash.lastClosedAt ? formatDateTime(cash.lastClosedAt) : "Sin cierre"}</strong></div>
+  `;
+}
+
+function renderDashboard() {
+  const todaySales = appState.sales.filter((sale) => sale.createdAt && new Date(sale.createdAt).toDateString() === new Date().toDateString()).reduce((sum, sale) => sum + sale.total, 0);
+  const totalExpenses = appState.expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const inventoryLow = appState.products.filter((product) => Number(product.stock) <= Number(product.minStock || 0)).length;
+  const totalCustomersDebt = appState.debts.reduce((sum, debt) => sum + Number(debt.balance || 0), 0);
+  const totalProductsStock = appState.products.reduce((sum, product) => sum + Number(product.stock || 0), 0);
+
+  elements.dashboardStats.innerHTML = `
+    <div class="stat-card">
+      <span class="label">Ventas hoy</span>
+      <span class="value">${currency(todaySales)}</span>
+    </div>
+    <div class="stat-card">
+      <span class="label">Gastos hoy</span>
+      <span class="value">${currency(totalExpenses)}</span>
+    </div>
+    <div class="stat-card">
+      <span class="label">Caja</span>
+      <span class="value">${currency(appState.cash.base || 0)}</span>
+    </div>
+    <div class="stat-card">
+      <span class="label">Deuda por cobrar</span>
+      <span class="value">${currency(totalCustomersDebt)}</span>
+    </div>
+  `;
+
+  elements.dashboardSummary.innerHTML = `
+    <div class="item"><span>Productos activos</span><strong>${appState.products.length}</strong></div>
+    <div class="item"><span>Stock total</span><strong>${totalProductsStock}</strong></div>
+    <div class="item"><span>Fiados</span><strong>${appState.debts.length}</strong></div>
+    <div class="item"><span>Apartados</span><strong>${appState.apartados.length}</strong></div>
+  `;
+
+  const alerts = appState.products.filter((product) => Number(product.stock) <= Number(product.minStock || 0));
+  elements.alertList.innerHTML = alerts.length
+    ? alerts.slice(0, 6).map((product) => `<div class="alert-item"><strong>${product.name}</strong><div class="meta">Stock bajo: ${product.stock}</div></div>`).join("")
+    : '<div class="empty-state">Sin alertas por inventario.</div>';
+}
+
+function renderReports() {
+  const totalSales = appState.sales.reduce((sum, sale) => sum + sale.total, 0);
+  const totalInventoryValue = appState.products.reduce((sum, product) => sum + Number(product.stock || 0) * Number(product.purchasePrice || 0), 0);
+  const totalDebt = appState.debts.reduce((sum, debt) => sum + Number(debt.balance || 0), 0);
+  const totalExpenses = appState.expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+
+  elements.reportsSales.innerHTML = `
+    <div class="item"><span>Ventas registradas</span><strong>${appState.sales.length}</strong></div>
+    <div class="item"><span>Total recaudado</span><strong>${currency(totalSales)}</strong></div>
+    <div class="item"><span>Gastos</span><strong>${currency(totalExpenses)}</strong></div>
+  `;
+
+  elements.reportsInventory.innerHTML = `
+    <div class="item"><span>Valor inventario</span><strong>${currency(totalInventoryValue)}</strong></div>
+    <div class="item"><span>Productos</span><strong>${appState.products.length}</strong></div>
+    <div class="item"><span>Stock bajo</span><strong>${appState.products.filter((product) => Number(product.stock) <= Number(product.minStock || 0)).length}</strong></div>
+  `;
+
+  elements.reportsFinance.innerHTML = `
+    <div class="item"><span>Total deuda</span><strong>${currency(totalDebt)}</strong></div>
+    <div class="item"><span>Utilidad estimada</span><strong>${currency(Math.max(totalSales - totalExpenses, 0))}</strong></div>
+    <div class="item"><span>Caja base</span><strong>${currency(appState.cash.base || 0)}</strong></div>
+  `;
+}
+
+function exportBackup() {
+  if (navigator.onLine && appState.auth?.token) {
+    apiRequest('/backup').then((resp) => {
+      const payload = JSON.stringify(resp, null, 2);
+      const blob = new Blob([payload], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `tenderopro-backup-${Date.now()}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      showNotice('Backup exportado (servidor).');
+    }).catch(() => {
+      const payload = JSON.stringify({ exportedAt: new Date().toISOString(), data: loadData() }, null, 2);
+      const blob = new Blob([payload], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `tenderopro-backup-${Date.now()}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      showNotice('Backup exportado (local).');
+    });
+    return;
+  }
+
+  const payload = JSON.stringify({ exportedAt: new Date().toISOString(), data: loadData() }, null, 2);
+  const blob = new Blob([payload], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `tenderopro-backup-${Date.now()}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+  showNotice("Backup exportado (local).");
+}
+
+function importBackup(event) {
+  const [file] = event.target.files || [];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(String(reader.result));
+      const payload = parsed.data ? parsed : parsed;
+      if (navigator.onLine && appState.auth?.token) {
+        if (!confirm('Restaurar backup en servidor. Esto creará un backup de seguridad y sobrescribirá los datos en el servidor. Continúa?')) {
+          event.target.value = '';
+          return;
+        }
+        apiRequest('/backup/restore', { method: 'POST', body: JSON.stringify(payload) }).then((resp) => {
+          showNotice('Restore ejecutado en servidor. Actualizando estado local...');
+          loadStateFromServer();
+        }).catch((err) => {
+          showNotice('Error restaurando en servidor: ' + (err.message || err));
+        });
+      } else {
+        const nextData = parsed.data || parsed;
+        appState.products = nextData.products || [];
+        appState.clients = nextData.clients || [];
+        appState.sales = nextData.sales || [];
+        appState.debts = nextData.debts || [];
+        appState.apartados = nextData.apartados || [];
+        appState.expenses = nextData.expenses || [];
+        appState.cash = nextData.cash || appState.cash;
+        appState.settings = nextData.settings || appState.settings;
+        saveData();
+        renderAll();
+        showNotice("Backup importado localmente.");
+      }
+    } catch (error) {
+      console.error(error);
+      showNotice("El archivo de respaldo no es válido.");
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = "";
 }
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
+  if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") return;
 
-  const isSecureContext = window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-  if (!isSecureContext) return;
-
-  window.addEventListener("load", async () => {
-    try {
-      await navigator.serviceWorker.register("./sw.js", { scope: "./" });
-      if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: "refresh" });
-      }
-    } catch (error) {
-      console.error("No se pudo registrar el service worker", error);
-    }
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch((error) => console.error("Service worker error", error));
   });
 }

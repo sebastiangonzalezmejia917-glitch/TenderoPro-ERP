@@ -6,86 +6,493 @@
     <meta name="theme-color" content="#0f172a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Apartados" />
-    <meta name="description" content="Sistema de apartados para tienda con registro de abonos, estado y mensajes de WhatsApp." />
+    <meta name="apple-mobile-web-app-title" content="TenderoPro" />
+    <meta name="description" content="TenderoPro ERP para tienda local con inventario, ventas, clientes, caja y apartados." />
     <link rel="manifest" href="manifest.json" />
     <link rel="apple-touch-icon" href="icon.svg" />
-    <title>Apartados de tienda</title>
+    <title>TenderoPro ERP</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <header class="hero-card">
+    <div id="authOverlay" style="position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.8); z-index: 30;">
+      <div style="background: #fff; border-radius: 16px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25); width: min(420px, 92vw); padding: 24px; color: #0f172a;">
+        <p class="eyebrow" style="margin-bottom: 6px;">TenderoPro ERP</p>
+        <h2 style="margin: 0 0 18px;">Iniciar sesión</h2>
+        <form id="loginForm" class="stack-form">
+          <label>
+            <span>Usuario</span>
+            <input name="username" type="text" value="admin" required />
+          </label>
+          <label>
+            <span>Contraseña</span>
+            <input name="password" type="password" value="admin123" required />
+          </label>
+          <button class="btn" type="submit">Entrar</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="appShell" class="app-shell" style="display: none;">
+      <header class="topbar">
         <div>
-          <p class="eyebrow">Sistema de apartados</p>
-          <h1>Controla abonos y entregas desde tu celular</h1>
-          <p>Registra cada pago, revisa el avance y envía un mensaje con la fecha, hora y estado del apartado.</p>
+          <p class="eyebrow">TenderoPro ERP</p>
+          <h1 id="storeNameHeader">Tienda La Bendición</h1>
         </div>
-        <div class="stack">
-          <span id="currentProfile" class="pill">Perfil: default</span>
-          <button id="resetBtn" class="secondary-btn" type="button">Borrar datos</button>
+        <div class="topbar-actions">
+          <span id="authUser" class="status-pill">Invitado</span>
+          <span id="connectionStatus" class="status-pill online">Online</span>
+          <button id="logoutBtn" class="btn btn-secondary" type="button">Cerrar sesión</button>
+          <button id="exportBackupBtn" class="btn btn-secondary" type="button">Exportar backup</button>
+          <label class="btn btn-secondary import-wrap">
+            Importar backup
+            <input id="importBackupInput" type="file" accept="application/json" hidden />
+          </label>
         </div>
       </header>
 
       <div id="notice" class="notice" aria-live="polite"></div>
 
-      <section class="panel">
-        <div class="section-head">
-          <h2>Apartados y abonos</h2>
-          <span class="pill">Productos</span>
-        </div>
-        <form id="apartadoForm" class="stack">
-          <label>
-            <span>Nombre del producto</span>
-            <input id="productName" name="productName" type="text" placeholder="Ej. TV 55 pulgadas" required />
-          </label>
-          <label>
-            <span>Precio total</span>
-            <input id="totalAmount" name="totalAmount" type="number" step="0.01" min="1" placeholder="Ej. 4500" required />
-          </label>
-          <button type="submit">Guardar apartado</button>
-        </form>
-      </section>
+      <nav class="nav-tabs" aria-label="Navegación principal">
+        <button class="tab-btn active" data-tab="dashboard" type="button">Dashboard</button>
+        <button class="tab-btn" data-tab="pos" type="button">POS</button>
+        <button class="tab-btn" data-tab="inventory" type="button">Inventario</button>
+        <button class="tab-btn" data-tab="suppliers" type="button">Proveedores</button>
+        <button class="tab-btn" data-tab="clients" type="button">Clientes</button>
+        <button class="tab-btn" data-tab="credits" type="button">Fiados</button>
+        <button class="tab-btn" data-tab="apartados" type="button">Apartados</button>
+        <button class="tab-btn" data-tab="expenses" type="button">Gastos</button>
+        <button class="tab-btn" data-tab="cash" type="button">Caja</button>
+        <button class="tab-btn" data-tab="users" type="button">Usuarios</button>
+        <button class="tab-btn" data-tab="reports" type="button">Reportes</button>
+      </nav>
 
-      <section class="panel">
-        <div class="section-head">
-          <h2>Lista de apartados</h2>
-          <span id="counter" class="pill">0 registros</span>
-        </div>
-        <div id="apartadosList" class="list"></div>
-      </section>
+      <main>
+        <section id="dashboardView" class="view active">
+          <div class="stats-grid" id="dashboardStats"></div>
+          <div class="panel-grid two-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Resumen de operaciones</h2>
+              </div>
+              <div id="dashboardSummary" class="summary-box"></div>
+            </div>
+            <div class="panel">
+              <div class="section-head">
+                <h2>Alertas</h2>
+              </div>
+              <div id="alertList" class="list-stack"></div>
+            </div>
+          </div>
+        </section>
 
-      <section class="panel">
-        <div class="section-head">
-          <h2>Fiados</h2>
-          <span class="pill">Cuenta automática</span>
-        </div>
-        <form id="fiadoForm" class="stack">
-          <label>
-            <span>Nombre de la persona</span>
-            <input id="fiadoName" name="fiadoName" type="text" placeholder="Ej. Ana López" required />
-          </label>
-          <label>
-            <span>Producto / concepto</span>
-            <input id="fiadoConcept" name="fiadoConcept" type="text" placeholder="Ej. 2 teléfonos" required />
-          </label>
-          <label>
-            <span>Total a deber</span>
-            <input id="fiadoTotal" name="fiadoTotal" type="number" step="0.01" min="1" placeholder="Ej. 3000" required />
-          </label>
-          <label>
-            <span>Abono dado</span>
-            <input id="fiadoAbono" name="fiadoAbono" type="number" step="0.01" min="0.01" placeholder="Ej. 500" required />
-          </label>
-          <button type="submit">Guardar fiado</button>
-        </form>
+        <section id="posView" class="view">
+          <div class="panel-grid two-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Punto de venta</h2>
+                <span class="chip">POS</span>
+              </div>
 
-        <div id="fiadosList" class="list" style="margin-top: 14px;"></div>
-      </section>
+              <div class="field-row">
+                <input id="posSearch" type="text" placeholder="Buscar producto por nombre, SKU o código" />
+              </div>
+              <div id="productPicker" class="small-list"></div>
+            </div>
+
+            <div class="panel">
+              <div class="section-head">
+                <h2>Carrito</h2>
+                <button id="clearCartBtn" class="btn btn-danger" type="button">Vaciar</button>
+              </div>
+              <div id="cartItems" class="cart-items"></div>
+
+              <div class="totals-box">
+                <div><span>Subtotal</span><strong id="subtotalLabel">$0</strong></div>
+                <div><span>Descuento</span><strong id="discountLabel">$0</strong></div>
+                <div><span>Total</span><strong id="totalLabel">$0</strong></div>
+              </div>
+
+              <form id="posPaymentForm" class="stack-form">
+                <label>
+                  <span>Descuento</span>
+                  <input id="discountInput" type="number" min="0" step="100" value="0" />
+                </label>
+                <div class="method-grid">
+                  <label><span>Efectivo</span><input type="number" min="0" step="100" name="efectivo" value="0" /></label>
+                  <label><span>Nequi</span><input type="number" min="0" step="100" name="nequi" value="0" /></label>
+                  <label><span>Daviplata</span><input type="number" min="0" step="100" name="daviplata" value="0" /></label>
+                  <label><span>Transferencia</span><input type="number" min="0" step="100" name="transferencia" value="0" /></label>
+                  <label><span>Tarjeta</span><input type="number" min="0" step="100" name="tarjeta" value="0" /></label>
+                  <label><span>Otro</span><input type="number" min="0" step="100" name="otro" value="0" /></label>
+                </div>
+                <div class="payment-summary">
+                  <span>Recibido</span>
+                  <strong id="receivedLabel">$0</strong>
+                </div>
+                <div class="payment-summary change-row">
+                  <span>Cambio</span>
+                  <strong id="changeLabel">$0</strong>
+                </div>
+                <button class="btn" type="submit">Guardar venta</button>
+                <button id="cancelSaleBtn" class="btn btn-secondary" type="button">Cancelar venta</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="section-head">
+              <h2>Historial de ventas</h2>
+            </div>
+            <div id="salesList" class="table-wrap"></div>
+          </div>
+        </section>
+
+        <section id="inventoryView" class="view">
+          <div class="panel-grid two-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Registrar producto</h2>
+                <span class="chip">Inventario</span>
+              </div>
+              <form id="productForm" class="stack-form">
+                <div class="field-row three-cols">
+                  <label><span>SKU</span><input name="sku" type="text" required /></label>
+                  <label><span>Código barras</span><input name="barcode" type="text" /></label>
+                  <label><span>Nombre</span><input name="name" type="text" required /></label>
+                </div>
+                <div class="field-row three-cols">
+                  <label><span>Marca</span><input name="brand" type="text" /></label>
+                  <label><span>Categoría</span><input name="category" type="text" /></label>
+                  <label><span>Proveedor</span><input name="supplier" type="text" /></label>
+                </div>
+                <div class="field-row three-cols">
+                  <label><span>Compra</span><input name="purchasePrice" type="number" min="0" step="100" required /></label>
+                  <label><span>Venta</span><input name="salePrice" type="number" min="0" step="100" required /></label>
+                  <label><span>Stock</span><input name="stock" type="number" min="0" step="1" required /></label>
+                </div>
+                <div class="field-row three-cols">
+                  <label><span>Stock mínimo</span><input name="minStock" type="number" min="0" step="1" value="5" /></label>
+                  <label><span>Stock máximo</span><input name="maxStock" type="number" min="0" step="1" value="200" /></label>
+                  <label><span>Unidad</span><input name="unit" type="text" value="und" /></label>
+                </div>
+                <button class="btn" type="submit">Guardar producto</button>
+              </form>
+            </div>
+
+            <div class="panel">
+              <div class="section-head">
+                <h2>Movimientos</h2>
+              </div>
+              <form id="inventoryMovementForm" class="stack-form">
+                <label>
+                  <span>Producto</span>
+                  <select id="movementProductSelect"></select>
+                </label>
+                <div class="field-row two-cols">
+                  <label><span>Tipo</span>
+                    <select id="movementType">
+                      <option value="entrada">Entrada</option>
+                      <option value="salida">Salida</option>
+                      <option value="ajuste">Ajuste</option>
+                      <option value="merma">Merma</option>
+                    </select>
+                  </label>
+                  <label><span>Cantidad</span><input id="movementQty" type="number" min="1" step="1" value="1" /></label>
+                </div>
+                <button class="btn" type="submit">Registrar movimiento</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="section-head">
+              <h2>Productos</h2>
+            </div>
+            <div id="inventoryList" class="table-wrap"></div>
+          </div>
+        </section>
+
+        <section id="suppliersView" class="view">
+          <div class="panel-grid two-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Proveedor</h2>
+              </div>
+              <form id="supplierForm" class="stack-form">
+                <div class="field-row two-cols">
+                  <label><span>Nombre</span><input name="name" type="text" required /></label>
+                  <label><span>Teléfono</span><input name="phone" type="text" /></label>
+                </div>
+                <div class="field-row two-cols">
+                  <label><span>WhatsApp</span><input name="whatsapp" type="text" /></label>
+                  <label><span>NIT</span><input name="nit" type="text" /></label>
+                </div>
+                <div class="field-row two-cols">
+                  <label><span>Email</span><input name="email" type="email" /></label>
+                  <label><span>Contacto</span><input name="contact" type="text" /></label>
+                </div>
+                <label><span>Dirección</span><input name="address" type="text" /></label>
+                <button class="btn" type="submit">Guardar proveedor</button>
+              </form>
+            </div>
+
+            <div class="panel">
+              <div class="section-head">
+                <h2>Compras</h2>
+              </div>
+              <form id="purchaseForm" class="stack-form">
+                <label>
+                  <span>Proveedor</span>
+                  <select id="purchaseSupplierSelect"></select>
+                </label>
+                <div class="field-row two-cols">
+                  <label><span>Factura</span><input name="invoiceNumber" type="text" /></label>
+                  <label><span>Fecha</span><input name="date" type="date" /></label>
+                </div>
+                <div class="field-row two-cols">
+                  <label><span>Producto</span><select id="purchaseProductSelect"></select></label>
+                  <label><span>Cantidad</span><input id="purchaseQty" type="number" min="1" step="1" value="1" /></label>
+                </div>
+                <div class="field-row two-cols">
+                  <label><span>Precio costo</span><input id="purchaseCostPrice" type="number" min="0" step="100" value="0" /></label>
+                  <label><span>Método</span>
+                    <select name="paymentMethod">
+                      <option value="Efectivo">Efectivo</option>
+                      <option value="Nequi">Nequi</option>
+                      <option value="Daviplata">Daviplata</option>
+                      <option value="Transferencia">Transferencia</option>
+                      <option value="Tarjeta">Tarjeta</option>
+                    </select>
+                  </label>
+                </div>
+                <button class="btn" type="submit">Registrar compra</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="section-head">
+              <h2>Listado de proveedores y compras</h2>
+            </div>
+            <div id="suppliersList" class="list-stack"></div>
+            <div id="purchasesList" class="table-wrap" style="margin-top: 12px;"></div>
+          </div>
+        </section>
+
+        <section id="clientsView" class="view">
+          <div class="panel-grid two-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Cliente</h2>
+              </div>
+              <form id="clientForm" class="stack-form">
+                <div class="field-row two-cols">
+                  <label><span>Nombre</span><input name="name" type="text" required /></label>
+                  <label><span>Teléfono</span><input name="phone" type="text" /></label>
+                </div>
+                <div class="field-row two-cols">
+                  <label><span>WhatsApp</span><input name="whatsapp" type="text" /></label>
+                  <label><span>Contacto familiar</span><input name="familyContact" type="text" /></label>
+                </div>
+                <label><span>Dirección</span><input name="address" type="text" /></label>
+                <button class="btn" type="submit">Guardar cliente</button>
+              </form>
+            </div>
+
+            <div class="panel">
+              <div class="section-head">
+                <h2>Listado</h2>
+              </div>
+              <div id="clientsList" class="list-stack"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="creditsView" class="view">
+          <div class="panel-grid two-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Crear fiado</h2>
+              </div>
+              <form id="creditForm" class="stack-form">
+                <label>
+                  <span>Cliente</span>
+                  <select id="creditClientSelect"></select>
+                </label>
+                <div class="field-row two-cols">
+                  <label><span>Total</span><input name="amount" type="number" min="0" step="100" required /></label>
+                  <label><span>Concepto</span><input name="concept" type="text" placeholder="Ej. Compra de productos" /></label>
+                </div>
+                <button class="btn" type="submit">Guardar deuda</button>
+              </form>
+            </div>
+
+            <div class="panel">
+              <div class="section-head">
+                <h2>Fiados activos</h2>
+              </div>
+              <div id="creditsList" class="list-stack"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="apartadosView" class="view">
+          <div class="panel-grid two-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Nuevo apartado</h2>
+              </div>
+              <form id="apartadoForm" class="stack-form">
+                <label>
+                  <span>Cliente</span>
+                  <select id="apartadoClientSelect"></select>
+                </label>
+                <div class="field-row two-cols">
+                  <label><span>Producto</span><input name="productName" type="text" required /></label>
+                  <label><span>Total</span><input name="total" type="number" min="0" step="100" required /></label>
+                </div>
+                <div class="field-row two-cols">
+                  <label><span>Abono inicial</span><input name="initialPayment" type="number" min="0" step="100" value="0" /></label>
+                  <label><span>Fecha límite</span><input name="dueDate" type="date" /></label>
+                </div>
+                <button class="btn" type="submit">Guardar apartado</button>
+              </form>
+            </div>
+
+            <div class="panel">
+              <div class="section-head">
+                <h2>Listados</h2>
+              </div>
+              <div id="apartadosList" class="list-stack"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="expensesView" class="view">
+          <div class="panel-grid two-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Registrar gasto</h2>
+              </div>
+              <form id="expenseForm" class="stack-form">
+                <div class="field-row two-cols">
+                  <label><span>Categoría</span>
+                    <select name="category">
+                      <option value="Arriendo">Arriendo</option>
+                      <option value="Servicios">Servicios</option>
+                      <option value="Transporte">Transporte</option>
+                      <option value="Seguridad">Seguridad</option>
+                      <option value="Mantenimiento">Mantenimiento</option>
+                      <option value="Compra de equipos">Compra de equipos</option>
+                      <option value="Otros">Otros</option>
+                    </select>
+                  </label>
+                  <label><span>Valor</span><input name="amount" type="number" min="0" step="100" required /></label>
+                </div>
+                <label><span>Concepto</span><input name="concept" type="text" required /></label>
+                <div class="field-row two-cols">
+                  <label><span>Fecha</span><input name="date" type="date" /></label>
+                  <label><span>Método</span>
+                    <select name="method">
+                      <option value="Efectivo">Efectivo</option>
+                      <option value="Nequi">Nequi</option>
+                      <option value="Daviplata">Daviplata</option>
+                      <option value="Transferencia">Transferencia</option>
+                      <option value="Tarjeta">Tarjeta</option>
+                    </select>
+                  </label>
+                </div>
+                <button class="btn" type="submit">Guardar gasto</button>
+              </form>
+            </div>
+
+            <div class="panel">
+              <div class="section-head">
+                <h2>Gastos</h2>
+              </div>
+              <div id="expensesList" class="list-stack"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="cashView" class="view">
+          <div class="panel-grid two-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Caja</h2>
+              </div>
+              <form id="cashOpenForm" class="stack-form">
+                <label><span>Base inicial</span><input id="cashBaseInput" type="number" min="0" step="100" value="0" /></label>
+                <label><span>Usuario</span><input id="cashUserInput" type="text" value="Admin" /></label>
+                <button class="btn" type="submit">Abrir caja</button>
+              </form>
+              <button id="closeCashBtn" class="btn btn-secondary" type="button" style="margin-top: 14px;">Cerrar caja</button>
+            </div>
+
+            <div class="panel">
+              <div class="section-head">
+                <h2>Estado de caja</h2>
+              </div>
+              <div id="cashSummary" class="summary-box"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="usersView" class="view">
+          <div class="panel-grid two-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Crear usuario</h2>
+              </div>
+              <form id="userForm" class="stack-form">
+                <label><span>Usuario</span><input name="username" type="text" required /></label>
+                <label><span>Contraseña</span><input name="password" type="password" required /></label>
+                <label>
+                  <span>Rol</span>
+                  <select name="role">
+                    <option value="ADMINISTRADOR">Administrador</option>
+                    <option value="CAJERO">Cajero</option>
+                    <option value="EMPLEADO">Empleado</option>
+                  </select>
+                </label>
+                <button class="btn" type="submit">Guardar usuario</button>
+              </form>
+            </div>
+
+            <div class="panel">
+              <div class="section-head">
+                <h2>Usuarios y permisos</h2>
+              </div>
+              <div id="usersList" class="list-stack"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="reportsView" class="view">
+          <div class="panel-grid three-cols">
+            <div class="panel">
+              <div class="section-head">
+                <h2>Ventas</h2>
+              </div>
+              <div id="reportsSales" class="summary-box"></div>
+            </div>
+            <div class="panel">
+              <div class="section-head">
+                <h2>Inventario</h2>
+              </div>
+              <div id="reportsInventory" class="summary-box"></div>
+            </div>
+            <div class="panel">
+              <div class="section-head">
+                <h2>Finanzas</h2>
+              </div>
+              <div id="reportsFinance" class="summary-box"></div>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
 
-    <button id="fabToggle" class="fab-btn" type="button" aria-label="Abrir formulario rápido">+</button>
-
-    <script src="app.js"></script>
+    <script src="app.js" defer></script>
   </body>
 </html>
