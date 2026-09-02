@@ -14,28 +14,37 @@ const JWT_SECRET = process.env.JWT_SECRET || "tenderopro-dev-secret";
 
 app.use(express.json({ limit: "16mb" }));
 
-// Restrict CORS to localhost and local network addresses
-const nets = os.networkInterfaces();
-const allowedOrigins = [
-  `http://localhost:${PORT}`,
-  `http://127.0.0.1:${PORT}`
-];
-for (const name of Object.keys(nets)) {
-  for (const net of nets[name]) {
-    if (net.family === "IPv4" && !net.internal) {
-      allowedOrigins.push(`http://${net.address}:${PORT}`);
+// Configure CORS - in production, allow all origins (since this is a public API)
+const allowAllOrigins = process.env.NODE_ENV === 'production';
+
+if (allowAllOrigins) {
+  // In production (Railway), allow all origins
+  app.use(cors());
+  console.log("[INFO] CORS: Permitiendo todos los origins (producción)");
+} else {
+  // In development, restrict to localhost and local network addresses
+  const nets = os.networkInterfaces();
+  const allowedOrigins = [
+    `http://localhost:${PORT}`,
+    `http://127.0.0.1:${PORT}`
+  ];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === "IPv4" && !net.internal) {
+        allowedOrigins.push(`http://${net.address}:${PORT}`);
+      }
     }
   }
+  
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error('CORS origin denied'));
+    }
+  }));
+  console.log("[INFO] CORS: Permitiendo origins locales (desarrollo)");
 }
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // allow non-browser requests (no origin) and allowed origins
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error('CORS origin denied'));
-  }
-}));
 
 app.use(helmet({ contentSecurityPolicy: false }));
 
