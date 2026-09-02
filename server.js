@@ -433,6 +433,24 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, message: "TenderoPro API funcionando" });
 });
 
+app.get("/api/debug", async (req, res) => {
+  try {
+    const users = await all(`SELECT id, username FROM users LIMIT 5`);
+    const count = await get(`SELECT COUNT(*) as count FROM users`);
+    res.json({ 
+      ok: true, 
+      users,
+      count,
+      message: "Debug info" 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: error.message, 
+      stack: error.stack 
+    });
+  }
+});
+
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body || {};
