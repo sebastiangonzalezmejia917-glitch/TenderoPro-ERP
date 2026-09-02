@@ -451,6 +451,53 @@ app.get("/api/debug", async (req, res) => {
   }
 });
 
+app.get("/api/test-login", async (req, res) => {
+  try {
+    console.log('[TEST] Starting login test');
+    
+    console.log('[TEST] Querying user');
+    const user = await get(`SELECT * FROM users WHERE username = ?`, ["admin"]);
+    console.log('[TEST] User:', user ? { id: user.id, username: user.username } : 'none');
+    
+    if (!user) {
+      return res.json({ 
+        ok: false, 
+        error: 'User not found',
+        step: 'query'
+      });
+    }
+
+    console.log('[TEST] Testing bcrypt');
+    const passwordOk = await bcrypt.compare("admin123", user.password_hash);
+    console.log('[TEST] Password OK:', passwordOk);
+    
+    if (!passwordOk) {
+      return res.json({ 
+        ok: false, 
+        error: 'Password mismatch',
+        step: 'password'
+      });
+    }
+
+    console.log('[TEST] Signing token');
+    const token = signToken(user);
+    console.log('[TEST] Token signed');
+    
+    return res.json({ 
+      ok: true, 
+      token,
+      user: { id: user.id, username: user.username, role: user.role }
+    });
+  } catch (error) {
+    console.error('[TEST] Error:', error.message, error.stack);
+    return res.status(500).json({ 
+      ok: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
 app.post("/api/auth/login", async (req, res) => {
   console.log('[INFO] Login attempt:', req.body);
   try {
