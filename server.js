@@ -475,7 +475,11 @@ app.post("/api/auth/login", async (req, res) => {
       console.warn('Failed to update last_login (likely older DB schema).');
     }
 
-    await createAuditLog(user, "login", "users", user.id, { ip: req.ip });
+    try {
+      await createAuditLog(user, "login", "users", user.id, { ip: req.ip });
+    } catch (e) {
+      console.warn('Failed to create audit log:', e.message);
+    }
 
     return res.json({
       token: signToken(user),
