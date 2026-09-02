@@ -47,14 +47,21 @@ app.use((req, res, next) => {
 
 const staticRoot = __dirname;
 const startupPromise = (async () => {
-  await initializeDb();
-  await ensureSettingsTable();
-  await seedDefaultPermissions();
-  await seedAdminUser();
-})().catch((error) => {
-  console.error("Error inicializando la base de datos:", error);
-  throw error;
-});
+  try {
+    console.log("[INFO] Iniciando base de datos...");
+    await initializeDb();
+    console.log("[INFO] Base de datos inicializada");
+    await ensureSettingsTable();
+    console.log("[INFO] Tabla de configuración lista");
+    await seedDefaultPermissions();
+    console.log("[INFO] Permisos por defecto configurados");
+    await seedAdminUser();
+    console.log("[INFO] Usuario admin creado/verificado");
+  } catch (error) {
+    console.error("[ERROR] Fallo en inicialización:", error.message, error.stack);
+    throw error;
+  }
+})();
 
 app.use(async (req, res, next) => {
   try {
